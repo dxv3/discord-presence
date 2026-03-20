@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Discord Presence</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background: #0d0d0d;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      color: #e0e0e0;
+    }
+
+    .card {
+      width: 320px;
+      background: #1a1a1a;
+      border-radius: 12px;
+      padding: 20px 22px;
+      border: 1px solid #2a2a2a;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .avatar-wrap {
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: #2a2a2a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      user-select: none;
+    }
+
+    .status-dot {
+      position: absolute;
+      bottom: 1px;
+      right: 1px;
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      border: 2px solid #1a1a1a;
+      background: #747f8d; /* offline default */
+      transition: background 0.3s;
+    }
+
+    .status-dot.online  { background: #3ba55d; }
+    .status-dot.idle    { background: #faa81a; }
+    .status-dot.dnd     { background: #ed4245; }
+    .status-dot.offline { background: #747f8d; }
+
+    .user-info { min-width: 0; }
+    .username  { font-weight: 600; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .status-label {
+      font-size: 0.75rem;
+      color: #888;
+      text-transform: capitalize;
+      margin-top: 2px;
+    }
+
+    /* ── Activity ── */
+    .activity {
+      background: #111;
+      border-radius: 8px;
+      padding: 12px 14px;
+      border: 1px solid #222;
+      min-height: 68px;
+    }
+
+    .activity-name {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #c9cdd4;
+      margin-bottom: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .activity-detail {
+      font-size: 0.78rem;
+      color: #777;
+      line-height: 1.4;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .activity-detail + .activity-detail { margin-top: 2px; }
+
+    .elapsed {
+      margin-top: 8px;
+      font-size: 0.75rem;
+      color: #555;
+    }
+
+    .idle-text {
+      color: #444;
+      font-size: 0.82rem;
+      text-align: center;
+      padding: 10px 0;
+    }
+
+    /* ── Footer ── */
+    .footer {
+      margin-top: 10px;
+      font-size: 0.68rem;
+      color: #333;
+      text-align: right;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <div class="avatar-wrap">
+        <div class="avatar" id="avatar">👤</div>
+        <div class="status-dot offline" id="statusDot"></div>
+      </div>
+      <div class="user-info">
+        <div class="username" id="username">Loading…</div>
+        <div class="status-label" id="statusLabel">—</div>
+      </div>
+    </div>
+
+    <div class="activity" id="activityBox">
+      <div class="idle-text">No activity</div>
+    </div>
+
+    <div class="footer" id="footer">—</div>
+  </div>
+
+  <script>
+    // ── CONFIG ────────────────────────────────────────────────────────────────
+    // Replace with your deployed backend URL (no trailing slash).
+    // During local development use: http://localhost:3000
+    const API_BASE = window.PRESENCE_API_URL || 'http://localhost:3000';
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    function elapsed(ts) {
+      if (!ts) return null;
+      const secs = Math.floor((Date.now() - ts) / 1000);
+      if (secs < 60)  return `${secs}s`;
+      if (secs < 3600) {
+        const m = Math.floor(secs / 60), s = secs % 60;
+        return `${m}m ${s}s`;
+      }
+      const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60);
+      return `${h}h ${m}m`;
+    }
+
+    const ACTIVITY_TYPES = {
+      0: 'Playing',
+      1: 'Streaming',
+      2: 'Listening to',
+      3: 'Watching',
+      4: 'Custom',
+      5: 'Competing in',
+    };
+
+    // ── Render ────────────────────────────────────────────────────────────────
+    function render(data) {
+      const dot      = document.getElementById('statusDot');
+      const userEl   = document.getElementById('username');
+      const labelEl  = document.getElementById('statusLabel');
+      const box      = document.getElementById('activityBox');
+      const footerEl = document.getElementById('footer');
+
+      // Status dot
+      dot.className = `status-dot ${data.status ?? 'offline'}`;
+      userEl.textContent  = data.user ?? '—';
+      labelEl.textContent = data.status ?? 'offline';
+
+      const act = data.activity;
+      if (act?.name) {
+        const typeLabel = ACTIVITY_TYPES[act.type] ?? '';
+        const elapsedStr = elapsed(act.createdTimestamp);
+
+        box.innerHTML = `
+          <div class="activity-name">${typeLabel ? typeLabel + ' ' : ''}${esc(act.name)}</div>
+          ${act.details ? `<div class="activity-detail">${esc(act.details)}</div>` : ''}
+          ${act.state   ? `<div class="activity-detail">${esc(act.state)}</div>`   : ''}
+          ${elapsedStr  ? `<div class="elapsed">${elapsedStr} elapsed</div>`       : ''}
+        `;
+      } else {
+        box.innerHTML = '<div class="idle-text">No activity</div>';
+      }
+
+      if (data.updatedAt) {
+        const t = new Date(data.updatedAt);
+        footerEl.textContent = `updated ${t.toLocaleTimeString()}`;
+      }
+    }
+
+    function esc(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    // ── Fetch loop ────────────────────────────────────────────────────────────
+    async function poll() {
+      try {
+        const res  = await fetch(`${API_BASE}/presence`);
+        const data = await res.json();
+        render(data);
+      } catch (err) {
+        console.error('[presence] fetch failed', err);
+        document.getElementById('statusLabel').textContent = 'error';
+      }
+    }
+
+    poll();
+    setInterval(poll, 5000);
+
+    // Elapsed timer refreshes every second without a network call
+    setInterval(() => {
+      const elapsedEl = document.querySelector('.elapsed');
+      if (!elapsedEl || !window._lastTs) return;
+      elapsedEl.textContent = `${elapsed(window._lastTs)} elapsed`;
+    }, 1000);
+  </script>
+</body>
+</html>
